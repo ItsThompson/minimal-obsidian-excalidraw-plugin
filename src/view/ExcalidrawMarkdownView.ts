@@ -66,7 +66,7 @@ export class ExcalidrawMarkdownView extends TextFileView {
   }
 
   async onClose(): Promise<void> {
-    this.unmountView();
+    await this.unmountView();
   }
 
   // ─── View-tier: lives for the tab's lifespan ───────────────────────
@@ -81,13 +81,11 @@ export class ExcalidrawMarkdownView extends TextFileView {
     this.wysiwygObserver = this.createWysiwygObserver(container);
   }
 
-  private unmountView(): void {
+  private async unmountView(): Promise<void> {
     // Defensive flush: handles plugin-unload path where onClose fires
     // without a preceding onUnloadFile
     if (this.autosave && this.status.type !== "error") {
-      // Cannot await in sync-shaped onClose, but flush is best-effort here.
-      // In practice, Obsidian awaits onClose.
-      void this.autosave.flush();
+      await this.autosave.flush();
     }
     this.autosave?.destroy();
     this.autosave = null;
