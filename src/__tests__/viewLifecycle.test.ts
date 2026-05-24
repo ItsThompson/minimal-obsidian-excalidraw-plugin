@@ -12,6 +12,9 @@ function buildElements(count: number): readonly ExcalidrawElement[] {
 const emptyAppState: Record<string, unknown> = {};
 const emptyFiles: Record<string, BinaryFileData> = {};
 
+/** Matches the default AUTOSAVE_INTERVAL_MS from production code. */
+const TEST_AUTOSAVE_INTERVAL_MS = 2000;
+
 type ViewStatus =
   | { type: "loading" }
   | { type: "ready" }
@@ -42,7 +45,7 @@ async function simulateDetachFile(
  * Mirrors the attachFile logic: creates a fresh autosave controller.
  */
 function simulateAttachFile(writeFn: () => Promise<void>): AutosaveState {
-  return createAutosavedScene(writeFn, 2000);
+  return createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 }
 
 /**
@@ -87,7 +90,7 @@ describe("view lifecycle: two-tier model", () => {
       const writeFn = vi.fn().mockImplementation(async () => {
         callOrder.push("write");
       });
-      const autosave = createAutosavedScene(writeFn, 2000);
+      const autosave = createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
@@ -104,7 +107,7 @@ describe("view lifecycle: two-tier model", () => {
 
     it("resets file-tier state after detach", async () => {
       const writeFn = vi.fn().mockResolvedValue(undefined);
-      const autosave = createAutosavedScene(writeFn, 2000);
+      const autosave = createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
@@ -117,7 +120,7 @@ describe("view lifecycle: two-tier model", () => {
 
     it("does not flush when status is error (discards corrupt data)", async () => {
       const writeFn = vi.fn().mockResolvedValue(undefined);
-      const autosave = createAutosavedScene(writeFn, 2000);
+      const autosave = createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
@@ -138,7 +141,7 @@ describe("view lifecycle: two-tier model", () => {
           };
         });
       });
-      const autosave = createAutosavedScene(writeFn, 2000);
+      const autosave = createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
@@ -183,7 +186,7 @@ describe("view lifecycle: two-tier model", () => {
   describe("file switch scenario: detachFile → attachFile → render", () => {
     it("full file switch: old file flushed, new autosave created, render succeeds", async () => {
       const writeA = vi.fn().mockResolvedValue(undefined);
-      const autosaveA = createAutosavedScene(writeA, 2000);
+      const autosaveA = createAutosavedScene(writeA, TEST_AUTOSAVE_INTERVAL_MS);
 
       // Simulate editing file A
       autosaveA.handleSceneChange(buildElements(3), emptyAppState, emptyFiles);
@@ -215,7 +218,7 @@ describe("view lifecycle: two-tier model", () => {
       // This test verifies the architectural guarantee: detachFile only
       // nulls file-tier state, view-tier resources remain intact
       const writeFn = vi.fn().mockResolvedValue(undefined);
-      const autosave = createAutosavedScene(writeFn, 2000);
+      const autosave = createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
@@ -232,7 +235,7 @@ describe("view lifecycle: two-tier model", () => {
   describe("unmountView: defensive flush for plugin-unload path", () => {
     it("flushes and destroys autosave when onClose fires without preceding onUnloadFile", async () => {
       const writeFn = vi.fn().mockResolvedValue(undefined);
-      const autosave = createAutosavedScene(writeFn, 2000);
+      const autosave = createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
       expect(autosave.isDirty).toBe(true);
@@ -250,7 +253,7 @@ describe("view lifecycle: two-tier model", () => {
 
     it("does not flush when status is error", async () => {
       const writeFn = vi.fn().mockResolvedValue(undefined);
-      const autosave = createAutosavedScene(writeFn, 2000);
+      const autosave = createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
@@ -261,7 +264,7 @@ describe("view lifecycle: two-tier model", () => {
 
     it("still destroys the controller when status is error", async () => {
       const writeFn = vi.fn().mockResolvedValue(undefined);
-      const autosave = createAutosavedScene(writeFn, 2000);
+      const autosave = createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
@@ -276,7 +279,7 @@ describe("view lifecycle: two-tier model", () => {
   describe("setViewData with clear=false does not recreate autosave", () => {
     it("existing autosave remains active when clear=false (external edit refresh)", async () => {
       const writeFn = vi.fn().mockResolvedValue(undefined);
-      const autosave = createAutosavedScene(writeFn, 2000);
+      const autosave = createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 
       // Simulate editing: autosave is dirty
       autosave.handleSceneChange(buildElements(2), emptyAppState, emptyFiles);
@@ -296,7 +299,7 @@ describe("view lifecycle: two-tier model", () => {
   describe("no duplicate writes: onUnloadFile then onClose", () => {
     it("detachFile flushes once, subsequent unmountView does not write again", async () => {
       const writeFn = vi.fn().mockResolvedValue(undefined);
-      const autosave = createAutosavedScene(writeFn, 2000);
+      const autosave = createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 
       autosave.handleSceneChange(buildElements(2), emptyAppState, emptyFiles);
 
@@ -319,7 +322,7 @@ describe("view lifecycle: two-tier model", () => {
       const writeFn = vi.fn().mockImplementation(async () => {
         callOrder.push("flush-write");
       });
-      const autosave = createAutosavedScene(writeFn, 2000);
+      const autosave = createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
@@ -376,7 +379,7 @@ describe("view lifecycle: two-tier model", () => {
   describe("idempotent double-close", () => {
     it("does not throw when unmountView is called twice", async () => {
       const writeFn = vi.fn().mockResolvedValue(undefined);
-      const autosave = createAutosavedScene(writeFn, 2000);
+      const autosave = createAutosavedScene(writeFn, TEST_AUTOSAVE_INTERVAL_MS);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
