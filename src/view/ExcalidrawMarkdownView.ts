@@ -1,4 +1,4 @@
-import { TextFileView } from "obsidian";
+import { TextFileView, Notice, TFile } from "obsidian";
 import { createRoot, Root } from "react-dom/client";
 import { createElement } from "react";
 import { VIEW_TYPE } from "../constants";
@@ -7,6 +7,9 @@ import { DrawingFileService } from "../file/DrawingFileService";
 import { ExcalidrawRoot } from "./ExcalidrawRoot";
 import { createAutosavedScene, type AutosaveState } from "./useAutosavedScene";
 import type { ExcalidrawScene } from "../types";
+
+const LOG_PREFIX = "[minimal-excalidraw]";
+const NOTICE_DURATION_MS = 5000;
 
 type ViewStatus =
   | { type: "loading" }
@@ -50,18 +53,47 @@ export class ExcalidrawMarkdownView extends TextFileView {
     const reactContainer = container.createDiv({ cls: "excalidraw-react-root" });
     this.reactRoot = createRoot(reactContainer);
 
-    this.autosave = createAutosavedScene(async (scene) => {
-      if (!this.file) return;
-      await DrawingFileService.writeDrawing(this.file, scene, this.app.vault);
-    });
+    this.autosave = createAutosavedScene(
+      async (scene) => {
+        if (!this.file) return;
+        if (this.status.type === "error") return;
+        await DrawingFileService.writeDrawing(this.file, scene, this.app.vault);
+      },
+      undefined,
+      {
+        onWriteError: (error) => {
+          const filepath = this.file?.path ?? "unknown";
+          console.error(LOG_PREFIX, "autosave failed", filepath, error);
+          new Notice(`Failed to save drawing: ${filepath}`, NOTICE_DURATION_MS);
+        },
+      },
+    );
+  }
+
+  async onUnloadFile(file: TFile): Promise<void> {
+    if (this.autosave?.isDirty && this.status.type !== "error") {
+      try {
+        await this.autosave.flush();
+      } catch (error: unknown) {
+        const filepath = file?.path ?? "unknown";
+        console.error(LOG_PREFIX, "flush on unload failed", filepath, error);
+        new Notice(`Failed to save drawing on close: ${filepath}`, NOTICE_DURATION_MS);
+      }
+    }
+
+    this.reactRoot?.unmount();
+    this.reactRoot = null;
+    this.autosave = null;
+
+    await super.onUnloadFile(file);
   }
 
   async onClose(): Promise<void> {
-    if (this.autosave?.isDirty) {
-      await this.autosave.flush();
+    // Cleanup is handled in onUnloadFile; unmount React if still present
+    if (this.reactRoot) {
+      this.reactRoot.unmount();
+      this.reactRoot = null;
     }
-    this.reactRoot?.unmount();
-    this.reactRoot = null;
     this.autosave = null;
   }
 

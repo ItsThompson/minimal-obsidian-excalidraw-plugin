@@ -6,6 +6,11 @@ export interface AutosaveWriteFn {
   (scene: ExcalidrawScene): Promise<void>;
 }
 
+export interface AutosaveCallbacks {
+  /** Called when a write attempt fails. */
+  onWriteError?: (error: unknown) => void;
+}
+
 export interface AutosaveState {
   /** Whether the scene has unsaved changes. */
   isDirty: boolean;
@@ -30,6 +35,7 @@ export interface AutosaveState {
 export function createAutosavedScene(
   writeFn: AutosaveWriteFn,
   debounceMs: number = AUTOSAVE_DEBOUNCE_MS,
+  callbacks: AutosaveCallbacks = {},
 ): AutosaveState {
   let isDirty = false;
   let pendingScene: ExcalidrawScene | null = null;
@@ -45,8 +51,9 @@ export function createAutosavedScene(
       if (pendingScene === sceneToWrite) {
         isDirty = false;
       }
-    } catch {
+    } catch (error: unknown) {
       // Keep dirty on failure; retry will happen on next debounce cycle
+      callbacks.onWriteError?.(error);
     }
   }
 
