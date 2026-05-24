@@ -200,6 +200,14 @@ describe("Error handling: parse errors", () => {
 });
 
 describe("Integration: corrupt fixture file → no modification", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("corrupt file produces parse error and vault.modify is never called", async () => {
     const corruptContent = [
       "---",
@@ -248,8 +256,7 @@ describe("Integration: corrupt fixture file → no modification", () => {
       {},
     );
 
-    // Use real timer advancement
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await vi.advanceTimersByTimeAsync(200);
 
     // vault.modify should never have been called (only vault.read for the initial parse)
     expect(mockVault.modify).not.toHaveBeenCalled();
