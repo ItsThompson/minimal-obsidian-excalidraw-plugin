@@ -1,0 +1,9 @@
+{
+  "id": "minimal-excalidraw",
+  "name": "Minimal Excalidraw",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Minimal Excalidraw drawing editor for Obsidian",
+  "author": "thompsnt",
+  "isDesktopOnly": false
+}

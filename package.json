@@ -1,0 +1,31 @@
+{
+  "name": "minimal-obsidian-excalidraw-plugin",
+  "version": "0.1.0",
+  "description": "Minimal Obsidian plugin for Excalidraw drawings",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+  },
+  "keywords": [
+    "obsidian",
+    "excalidraw"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.1",
+    "obsidian": "latest",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.41",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "esbuild": "0.25.5",
+    "tslib": "2.4.0",
+    "typescript": "^5.8.3",
+    "vitest": "^4.1.7"
+  }
+}
