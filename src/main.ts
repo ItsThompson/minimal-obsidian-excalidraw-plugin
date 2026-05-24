@@ -2,7 +2,6 @@ import { Plugin } from "obsidian";
 import { ExcalidrawMarkdownView } from "./view/ExcalidrawMarkdownView";
 import { VIEW_TYPE, FILE_EXTENSION, CMD_CREATE_DRAWING } from "./constants";
 import { DrawingFileService } from "./file/DrawingFileService";
-import { normalizeFolderPath } from "./file/filename";
 import {
   MinimalExcalidrawSettingTab,
   DEFAULT_SETTINGS,
@@ -41,10 +40,8 @@ export default class MinimalExcalidrawPlugin extends Plugin {
   }
 
   private async createNewDrawing(): Promise<void> {
-    const folder = normalizeFolderPath(this.settings.folder || "excalidraw");
-
     const file = await DrawingFileService.createDrawing(
-      { folder },
+      { folder: this.settings.folder },
       this.app.vault,
     );
 

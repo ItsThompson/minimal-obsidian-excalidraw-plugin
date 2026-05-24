@@ -1,6 +1,7 @@
 import type { Vault, TFile, TAbstractFile } from "obsidian";
 import { ExcalidrawMarkdownCodec } from "../markdown/ExcalidrawMarkdownCodec";
 import { formatTimestamp, generateUniqueFilename, normalizeFolderPath } from "./filename";
+import { FILE_EXTENSION } from "../constants";
 import type { ExcalidrawScene, ParseResult } from "../types";
 
 export interface CreateDrawingRequest {
@@ -64,8 +65,8 @@ export const DrawingFileService = {
     // Check the base and a reasonable number of suffixes
     for (let suffix = 0; suffix <= 100; suffix++) {
       const candidateName = suffix === 0
-        ? `${checkBaseName}.excalidraw.md`
-        : `${checkBaseName} ${suffix + 1}.excalidraw.md`;
+        ? `${checkBaseName}.${FILE_EXTENSION}`
+        : `${checkBaseName} ${suffix + 1}.${FILE_EXTENSION}`;
       const candidatePath = `${folder}/${candidateName}`;
       if (vault.getAbstractFileByPath(candidatePath)) {
         existingPaths.add(candidatePath);
