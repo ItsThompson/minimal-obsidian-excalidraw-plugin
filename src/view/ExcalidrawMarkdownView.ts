@@ -60,39 +60,7 @@ export class ExcalidrawMarkdownView extends TextFileView {
 
     const reactContainer = container.createDiv({ cls: "excalidraw-react-root" });
     this.reactRoot = createRoot(reactContainer);
-
-    // Watch for Excalidraw's WYSIWYG textarea and force color + caret-color
-    // with inline !important to beat Obsidian's global textarea styles.
-    // Also observe attribute changes since Excalidraw updates style.color
-    // when the element's strokeColor changes.
-    this.wysiwygObserver = new MutationObserver((mutations) => {
-      mutations.forEach((mutation) => {
-        // Handle newly added textareas
-        mutation.addedNodes.forEach((node) => {
-          if (
-            node instanceof HTMLTextAreaElement &&
-            node.classList.contains("excalidraw-wysiwyg")
-          ) {
-            this.fixWysiwygColors(node);
-          }
-        });
-        // Handle style attribute changes on existing textarea
-        if (
-          mutation.type === "attributes" &&
-          mutation.attributeName === "style" &&
-          mutation.target instanceof HTMLTextAreaElement &&
-          mutation.target.classList.contains("excalidraw-wysiwyg")
-        ) {
-          this.fixWysiwygColors(mutation.target);
-        }
-      });
-    });
-    this.wysiwygObserver.observe(container, {
-      childList: true,
-      subtree: true,
-      attributes: true,
-      attributeFilter: ["style"],
-    });
+    this.wysiwygObserver = this.createWysiwygObserver(container);
 
     this.autosave = createAutosavedScene(
       async (scene) => {
@@ -155,6 +123,42 @@ export class ExcalidrawMarkdownView extends TextFileView {
     this.reactRoot = null;
     this.wysiwygObserver?.disconnect();
     this.wysiwygObserver = null;
+  }
+
+  /**
+   * Creates a MutationObserver that watches for Excalidraw's WYSIWYG textarea
+   * and forces color + caret-color with inline !important to beat Obsidian's
+   * global textarea styles. Also observes attribute changes since Excalidraw
+   * updates style.color when the element's strokeColor changes.
+   */
+  private createWysiwygObserver(container: HTMLElement): MutationObserver {
+    const observer = new MutationObserver((mutations) => {
+      mutations.forEach((mutation) => {
+        mutation.addedNodes.forEach((node) => {
+          if (
+            node instanceof HTMLTextAreaElement &&
+            node.classList.contains("excalidraw-wysiwyg")
+          ) {
+            this.fixWysiwygColors(node);
+          }
+        });
+        if (
+          mutation.type === "attributes" &&
+          mutation.attributeName === "style" &&
+          mutation.target instanceof HTMLTextAreaElement &&
+          mutation.target.classList.contains("excalidraw-wysiwyg")
+        ) {
+          this.fixWysiwygColors(mutation.target);
+        }
+      });
+    });
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["style"],
+    });
+    return observer;
   }
 
   /**
