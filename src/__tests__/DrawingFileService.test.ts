@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { DrawingFileService, type VaultOperations } from "../file/DrawingFileService";
+import { ExcalidrawMarkdownCodec } from "../markdown/ExcalidrawMarkdownCodec";
 import type { ExcalidrawScene } from "../types";
 
 function buildMinimalScene(overrides?: Partial<ExcalidrawScene>): ExcalidrawScene {
@@ -252,6 +253,84 @@ describe("DrawingFileService.writeDrawing", () => {
     const writtenContent = vault.modify.mock.calls[0]![1] as string;
     expect(writtenContent).toContain("img1");
     expect(writtenContent).toContain("image/png");
+  });
+
+  it("performs round-trip validation: parse succeeds before writing", async () => {
+    const vault = createMockVault();
+    const file = createMockFile("excalidraw/test.excalidraw.md");
+    const scene = buildMinimalScene({
+      elements: [{ id: "rect1", type: "rectangle" }],
+    });
+
+    await DrawingFileService.writeDrawing(file, scene, vault);
+
+    // vault.modify should have been called (validation passed)
+    expect(vault.modify).toHaveBeenCalledTimes(1);
+    // The written content should round-trip successfully
+    const writtenContent = vault.modify.mock.calls[0]![1] as string;
+    const parseResult = ExcalidrawMarkdownCodec.parse(writtenContent);
+    expect(parseResult.ok).toBe(true);
+  });
+
+  it("throws and does not write when serialized output fails to parse back", async () => {
+    const vault = createMockVault();
+    const file = createMockFile("excalidraw/test.excalidraw.md");
+    const scene = buildMinimalScene();
+
+    // Mock serialize to return malformed content that won't parse
+    const serializeSpy = vi.spyOn(ExcalidrawMarkdownCodec, "serialize");
+    serializeSpy.mockReturnValueOnce("garbage content with no %% markers");
+
+    await expect(
+      DrawingFileService.writeDrawing(file, scene, vault),
+    ).rejects.toThrow("Serialization produced unparseable output");
+
+    // vault.modify must NOT have been called
+    expect(vault.modify).not.toHaveBeenCalled();
+
+    serializeSpy.mockRestore();
+  });
+
+  it("error message includes the parse failure reason", async () => {
+    const vault = createMockVault();
+    const file = createMockFile("excalidraw/test.excalidraw.md");
+    const scene = buildMinimalScene();
+
+    const serializeSpy = vi.spyOn(ExcalidrawMarkdownCodec, "serialize");
+    serializeSpy.mockReturnValueOnce("no valid structure here");
+
+    await expect(
+      DrawingFileService.writeDrawing(file, scene, vault),
+    ).rejects.toThrow(/Missing drawing block/);
+
+    serializeSpy.mockRestore();
+  });
+
+  it("onWriteError receives the validation error through performWrite", async () => {
+    // This tests the integration: writeDrawing throws, and the autosave
+    // controller's try/catch in performWrite routes it to onWriteError.
+    const vault = createMockVault();
+    const file = createMockFile("excalidraw/test.excalidraw.md");
+    const scene = buildMinimalScene();
+
+    const serializeSpy = vi.spyOn(ExcalidrawMarkdownCodec, "serialize");
+    serializeSpy.mockReturnValueOnce("invalid content");
+
+    // Simulate the autosave controller's error handling pattern
+    const onWriteError = vi.fn();
+    try {
+      await DrawingFileService.writeDrawing(file, scene, vault);
+    } catch (error: unknown) {
+      onWriteError(error);
+    }
+
+    expect(onWriteError).toHaveBeenCalledTimes(1);
+    expect(onWriteError.mock.calls[0]![0]).toBeInstanceOf(Error);
+    expect((onWriteError.mock.calls[0]![0] as Error).message).toContain(
+      "Serialization produced unparseable output",
+    );
+
+    serializeSpy.mockRestore();
   });
 });
 

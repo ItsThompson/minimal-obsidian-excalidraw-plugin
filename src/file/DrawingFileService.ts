@@ -35,10 +35,23 @@ export const DrawingFileService = {
 
   /**
    * Serializes the scene through the codec (including text projection regeneration)
-   * and writes the full markdown file to the vault atomically.
+   * and writes the full markdown file to the vault via `vault.modify`.
+   *
+   * Before writing, performs a round-trip validation: the serialized output is parsed
+   * back through the codec. If parsing fails, the write is rejected with an error
+   * and the file on disk remains unchanged.
+   *
+   * Note: `vault.modify` is NOT atomic. A crash mid-write could leave the file
+   * in a partial state. This method guards against serialization bugs, not I/O failures.
    */
   async writeDrawing(file: TFile, scene: ExcalidrawScene, vault: Vault): Promise<void> {
     const content = ExcalidrawMarkdownCodec.serialize(scene);
+
+    const validation = ExcalidrawMarkdownCodec.parse(content);
+    if (!validation.ok) {
+      throw new Error(`Serialization produced unparseable output: ${validation.error}`);
+    }
+
     await vault.modify(file, content);
   },
 
