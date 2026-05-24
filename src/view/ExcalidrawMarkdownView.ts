@@ -72,13 +72,7 @@ export class ExcalidrawMarkdownView extends TextFileView {
 
   async onUnloadFile(file: TFile): Promise<void> {
     if (this.autosave?.isDirty && this.status.type !== "error") {
-      try {
-        await this.autosave.flush();
-      } catch (error: unknown) {
-        const filepath = file?.path ?? "unknown";
-        console.error(LOG_PREFIX, "flush on unload failed", filepath, error);
-        new Notice(`Failed to save drawing on close: ${filepath}`, NOTICE_DURATION_MS);
-      }
+      await this.autosave.flush();
     }
 
     this.reactRoot?.unmount();
