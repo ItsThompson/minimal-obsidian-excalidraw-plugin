@@ -42,7 +42,10 @@ export class ExcalidrawMarkdownView extends TextFileView {
     return this.data;
   }
 
-  setViewData(data: string, _clear: boolean): void {
+  setViewData(data: string, clear: boolean): void {
+    if (clear) {
+      this.attachFile();
+    }
     this.data = data;
     this.parseAndRender();
   }
@@ -54,6 +57,21 @@ export class ExcalidrawMarkdownView extends TextFileView {
   }
 
   async onOpen(): Promise<void> {
+    this.mountView();
+  }
+
+  async onUnloadFile(file: TFile): Promise<void> {
+    await this.detachFile();
+    await super.onUnloadFile(file);
+  }
+
+  async onClose(): Promise<void> {
+    this.unmountView();
+  }
+
+  // ─── View-tier: lives for the tab's lifespan ───────────────────────
+
+  private mountView(): void {
     const container = this.contentEl;
     container.empty();
     container.addClass("excalidraw-view-container");
@@ -61,13 +79,34 @@ export class ExcalidrawMarkdownView extends TextFileView {
     const reactContainer = container.createDiv({ cls: "excalidraw-react-root" });
     this.reactRoot = createRoot(reactContainer);
     this.wysiwygObserver = this.createWysiwygObserver(container);
+  }
 
+  private unmountView(): void {
+    // Defensive flush: handles plugin-unload path where onClose fires
+    // without a preceding onUnloadFile
+    if (this.autosave && this.status.type !== "error") {
+      // Cannot await in sync-shaped onClose, but flush is best-effort here.
+      // In practice, Obsidian awaits onClose.
+      void this.autosave.flush();
+    }
+    this.autosave?.destroy();
+    this.autosave = null;
+
+    this.reactRoot?.unmount();
+    this.reactRoot = null;
+    this.wysiwygObserver?.disconnect();
+    this.wysiwygObserver = null;
+  }
+
+  // ─── File-tier: lives per file switch ──────────────────────────────
+
+  private attachFile(): void {
+    this.autosave?.destroy();
     this.autosave = createAutosavedScene(
       async (scene) => {
         if (!this.file) return;
         if (this.status.type === "error") return;
         await DrawingFileService.writeDrawing(this.file, scene, this.app.vault);
-        // Update tab title to remove dirty/saving indicator
         (this.leaf as any).updateHeader();
       },
       undefined,
@@ -79,16 +118,14 @@ export class ExcalidrawMarkdownView extends TextFileView {
           (this.leaf as any).updateHeader();
         },
         onDirty: () => {
-          // Update tab title to show dirty indicator
           (this.leaf as any).updateHeader();
         },
       },
     );
   }
 
-  async onUnloadFile(file: TFile): Promise<void> {
+  private async detachFile(): Promise<void> {
     if (this.autosave && this.status.type !== "error") {
-      // Wait for any in-progress save to finish
       if (this.autosave.isSaving) {
         console.log(LOG_PREFIX, "waiting for in-progress save before unload");
         new Notice("Saving drawing…", NOTICE_DURATION_MS);
@@ -97,32 +134,14 @@ export class ExcalidrawMarkdownView extends TextFileView {
           new Notice("Save is taking too long, data may be lost", NOTICE_DURATION_MS);
         }
       }
-
-      // Flush any remaining dirty changes
       if (this.autosave.isDirty) {
         await this.autosave.flush();
       }
     }
     this.autosave?.destroy();
-
-    this.reactRoot?.unmount();
-    this.reactRoot = null;
     this.autosave = null;
-
-    await super.onUnloadFile(file);
-  }
-
-  async onClose(): Promise<void> {
-    // Flush pending dirty state before destroying (prevents data loss on plugin unload)
-    if (this.autosave && this.status.type !== "error") {
-      await this.autosave.flush();
-    }
-    this.autosave?.destroy();
-    this.autosave = null;
-    this.reactRoot?.unmount();
-    this.reactRoot = null;
-    this.wysiwygObserver?.disconnect();
-    this.wysiwygObserver = null;
+    this.initialScene = null;
+    this.status = { type: "loading" };
   }
 
   /**
@@ -216,6 +235,7 @@ export class ExcalidrawMarkdownView extends TextFileView {
 
     this.reactRoot.render(
       createElement(ExcalidrawRoot, {
+        key: this.file?.path ?? "",
         initialScene: this.initialScene!,
         onSceneChange: this.autosave?.handleSceneChange,
       }),
