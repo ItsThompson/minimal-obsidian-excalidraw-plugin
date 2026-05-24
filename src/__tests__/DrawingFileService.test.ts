@@ -36,9 +36,10 @@ function buildValidMarkdown(scene?: ExcalidrawScene): string {
   ].join("\n");
 }
 
-function createMockVault(content: string) {
+function createMockVault(content: string = "") {
   return {
     read: vi.fn().mockResolvedValue(content),
+    modify: vi.fn().mockResolvedValue(undefined),
   } as any;
 }
 
@@ -151,5 +152,90 @@ describe("DrawingFileService.readDrawing", () => {
     if (!result.ok) return;
     expect(result.document.scene.files["img1"]).toBeDefined();
     expect(result.document.scene.files["img1"]!.mimeType).toBe("image/png");
+  });
+});
+
+describe("DrawingFileService.writeDrawing", () => {
+  it("serializes scene and calls vault.modify with full markdown", async () => {
+    const vault = createMockVault();
+    const file = createMockFile("excalidraw/test.excalidraw.md");
+    const scene = buildMinimalScene({
+      elements: [{ id: "rect1", type: "rectangle" }],
+    });
+
+    await DrawingFileService.writeDrawing(file, scene, vault);
+
+    expect(vault.modify).toHaveBeenCalledTimes(1);
+    expect(vault.modify).toHaveBeenCalledWith(file, expect.any(String));
+  });
+
+  it("written content contains # Text Elements section", async () => {
+    const vault = createMockVault();
+    const file = createMockFile("excalidraw/test.excalidraw.md");
+    const scene = buildMinimalScene({
+      elements: [
+        { id: "text1", type: "text", text: "Hello world", isDeleted: false },
+      ],
+    });
+
+    await DrawingFileService.writeDrawing(file, scene, vault);
+
+    const writtenContent = vault.modify.mock.calls[0]![1] as string;
+    expect(writtenContent).toContain("# Text Elements");
+    expect(writtenContent).toContain("Hello world ^text1");
+  });
+
+  it("written content contains # Drawing JSON block", async () => {
+    const vault = createMockVault();
+    const file = createMockFile("excalidraw/test.excalidraw.md");
+    const scene = buildMinimalScene({
+      elements: [{ id: "rect1", type: "rectangle" }],
+      appState: { theme: "dark" },
+    });
+
+    await DrawingFileService.writeDrawing(file, scene, vault);
+
+    const writtenContent = vault.modify.mock.calls[0]![1] as string;
+    expect(writtenContent).toContain("# Drawing");
+    expect(writtenContent).toContain('"type": "excalidraw"');
+    expect(writtenContent).toContain('"theme": "dark"');
+  });
+
+  it("excludes deleted text elements from Text Elements section", async () => {
+    const vault = createMockVault();
+    const file = createMockFile("excalidraw/test.excalidraw.md");
+    const scene = buildMinimalScene({
+      elements: [
+        { id: "text1", type: "text", text: "Visible", isDeleted: false },
+        { id: "text2", type: "text", text: "Deleted", isDeleted: true },
+      ],
+    });
+
+    await DrawingFileService.writeDrawing(file, scene, vault);
+
+    const writtenContent = vault.modify.mock.calls[0]![1] as string;
+    expect(writtenContent).toContain("Visible ^text1");
+    expect(writtenContent).not.toContain("Deleted ^text2");
+  });
+
+  it("includes files object in the Drawing JSON", async () => {
+    const vault = createMockVault();
+    const file = createMockFile("excalidraw/test.excalidraw.md");
+    const scene = buildMinimalScene({
+      files: {
+        img1: {
+          id: "img1",
+          mimeType: "image/png",
+          dataURL: "data:image/png;base64,abc",
+          created: 1700000000000,
+        },
+      },
+    });
+
+    await DrawingFileService.writeDrawing(file, scene, vault);
+
+    const writtenContent = vault.modify.mock.calls[0]![1] as string;
+    expect(writtenContent).toContain("img1");
+    expect(writtenContent).toContain("image/png");
   });
 });

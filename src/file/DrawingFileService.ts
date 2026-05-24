@@ -1,11 +1,10 @@
 import type { Vault, TFile } from "obsidian";
 import { ExcalidrawMarkdownCodec } from "../markdown/ExcalidrawMarkdownCodec";
-import type { ParseResult } from "../types";
+import type { ExcalidrawScene, ParseResult } from "../types";
 
 /**
  * Thin service coordinating vault file I/O with the markdown codec.
- * Currently only owns the read path; createDrawing and writeDrawing
- * will be added by later tickets.
+ * Owns both read and write paths for .excalidraw.md files.
  */
 export const DrawingFileService = {
   /**
@@ -15,5 +14,14 @@ export const DrawingFileService = {
   async readDrawing(file: TFile, vault: Vault): Promise<ParseResult> {
     const content = await vault.read(file);
     return ExcalidrawMarkdownCodec.parse(content);
+  },
+
+  /**
+   * Serializes the scene through the codec (including text projection regeneration)
+   * and writes the full markdown file to the vault atomically.
+   */
+  async writeDrawing(file: TFile, scene: ExcalidrawScene, vault: Vault): Promise<void> {
+    const content = ExcalidrawMarkdownCodec.serialize(scene);
+    await vault.modify(file, content);
   },
 };
