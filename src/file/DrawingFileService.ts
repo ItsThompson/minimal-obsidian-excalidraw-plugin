@@ -2,7 +2,7 @@ import type { Vault, TFile, TAbstractFile } from "obsidian";
 import { ExcalidrawMarkdownCodec } from "../markdown/ExcalidrawMarkdownCodec";
 import { formatTimestamp, generateUniqueFilename, normalizeFolderPath } from "./filename";
 import { FILE_EXTENSION } from "../constants";
-import type { ExcalidrawScene, ParseResult } from "../types";
+import type { ExcalidrawScene } from "../types";
 
 export interface CreateDrawingRequest {
   /** Vault-relative target folder. */
