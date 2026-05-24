@@ -91,19 +91,16 @@ export default class MinimalExcalidrawPlugin extends Plugin {
    * Uses path suffix and metadata cache frontmatter.
    */
   private isExcalidrawFile(filepath: string): boolean {
-    const hasExtension = filepath.endsWith(`.${FILE_EXTENSION}`);
+    if (!filepath.endsWith(`.${FILE_EXTENSION}`)) return false;
+
+    // If metadata cache hasn't indexed this file yet (e.g., just created),
+    // trust the .excalidraw.md extension alone.
     const cache = this.app.metadataCache.getCache(filepath);
-    const frontmatter = cache?.frontmatter;
-    const hasFrontmatterKey = !!frontmatter?.[FRONTMATTER_KEY];
-    console.log("[minimal-excalidraw] isExcalidrawFile:", {
-      filepath,
-      hasExtension,
-      cacheExists: !!cache,
-      frontmatter: frontmatter ?? "(null)",
-      hasFrontmatterKey,
-    });
-    if (!hasExtension) return false;
-    return hasFrontmatterKey;
+    if (!cache) return true;
+
+    // If cache exists, require the frontmatter key to avoid hijacking
+    // .excalidraw.md files that don't belong to this plugin.
+    return !!cache.frontmatter?.[FRONTMATTER_KEY];
   }
 
   async loadSettings(): Promise<void> {
