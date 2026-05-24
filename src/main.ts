@@ -3,6 +3,7 @@ import { around } from "monkey-around";
 import { ExcalidrawMarkdownView } from "./view/ExcalidrawMarkdownView";
 import { VIEW_TYPE, FILE_EXTENSION, CMD_CREATE_DRAWING } from "./constants";
 import { DrawingFileService } from "./file/DrawingFileService";
+import { registerEmbedPostProcessor } from "./embed/EmbedPostProcessor";
 import {
   MinimalExcalidrawSettingTab,
   DEFAULT_SETTINGS,
@@ -30,6 +31,7 @@ export default class MinimalExcalidrawPlugin extends Plugin {
     });
 
     this.patchWorkspaceLeaf();
+    registerEmbedPostProcessor(this);
     this.pluginLoaded = true;
   }
 
