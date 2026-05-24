@@ -145,13 +145,14 @@ export class ExcalidrawMarkdownView extends TextFileView {
   }
 
   async onClose(): Promise<void> {
-    // Cleanup is handled in onUnloadFile; unmount React if still present
-    if (this.reactRoot) {
-      this.reactRoot.unmount();
-      this.reactRoot = null;
+    // Flush pending dirty state before destroying (prevents data loss on plugin unload)
+    if (this.autosave && this.status.type !== "error") {
+      await this.autosave.flush();
     }
     this.autosave?.destroy();
     this.autosave = null;
+    this.reactRoot?.unmount();
+    this.reactRoot = null;
     this.wysiwygObserver?.disconnect();
     this.wysiwygObserver = null;
   }
