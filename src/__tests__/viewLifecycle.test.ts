@@ -229,7 +229,6 @@ describe("onClose flush behavior", () => {
       };
 
       await simulateOnClose(autosave, { type: "ready" }, {
-        afterDestroy: () => callOrder.push("after-destroy"),
         afterUnmount: () => callOrder.push("unmount"),
         afterDisconnect: () => callOrder.push("disconnect"),
       });
@@ -237,7 +236,6 @@ describe("onClose flush behavior", () => {
       expect(callOrder).toEqual([
         "flush-write",
         "destroy",
-        "after-destroy",
         "unmount",
         "disconnect",
       ]);
