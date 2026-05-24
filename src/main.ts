@@ -17,13 +17,9 @@ export default class MinimalExcalidrawPlugin extends Plugin {
   private pluginLoaded = false;
 
   async onload(): Promise<void> {
-    console.log("[minimal-excalidraw] onload: starting plugin initialization");
     await this.loadSettings();
 
-    this.registerView(VIEW_TYPE, (leaf) => {
-      console.log("[minimal-excalidraw] registerView: creating ExcalidrawMarkdownView");
-      return new ExcalidrawMarkdownView(leaf);
-    });
+    this.registerView(VIEW_TYPE, (leaf) => new ExcalidrawMarkdownView(leaf));
 
     this.addSettingTab(new MinimalExcalidrawSettingTab(this.app, this));
 
@@ -35,7 +31,6 @@ export default class MinimalExcalidrawPlugin extends Plugin {
 
     this.patchWorkspaceLeaf();
     this.pluginLoaded = true;
-    console.log("[minimal-excalidraw] onload: plugin fully loaded, pluginLoaded =", this.pluginLoaded);
   }
 
   onunload(): void {
@@ -55,27 +50,17 @@ export default class MinimalExcalidrawPlugin extends Plugin {
       around(WorkspaceLeaf.prototype, {
         setViewState(next) {
           return function (this: WorkspaceLeaf, state: ViewState, eState?: unknown) {
-            console.log("[minimal-excalidraw] setViewState intercepted:", {
-              type: state.type,
-              file: state.state?.file,
-              pluginLoaded: self.pluginLoaded,
-            });
-
             if (
               self.pluginLoaded &&
               state.type === "markdown" &&
               state.state?.file
             ) {
               const filepath = state.state.file as string;
-              const isExcalidraw = self.isExcalidrawFile(filepath);
-              console.log("[minimal-excalidraw] checking file:", filepath, "isExcalidraw:", isExcalidraw);
-
-              if (isExcalidraw) {
+              if (self.isExcalidrawFile(filepath)) {
                 const newState = {
                   ...state,
                   type: VIEW_TYPE,
                 };
-                console.log("[minimal-excalidraw] redirecting to excalidraw view");
                 return next.apply(this, [newState, eState]);
               }
             }

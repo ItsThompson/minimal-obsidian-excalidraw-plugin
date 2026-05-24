@@ -27,9 +27,17 @@ export function ExcalidrawRoot({ initialScene, onSceneChange }: ExcalidrawRootPr
   // Our internal ExcalidrawElement/BinaryFileData are minimal subsets of upstream types.
   // At runtime the actual data contains full upstream shapes read from files.
   // The cast is narrowed to the prop boundary where our types meet upstream's.
+  //
+  // Excalidraw expects appState.collaborators to be a Map. JSON serialization
+  // loses the Map type, so we ensure it's always a Map when passing to the component.
+  const appState = {
+    ...initialScene.appState,
+    collaborators: new Map(),
+  };
+
   const initialData = {
     elements: initialScene.elements,
-    appState: initialScene.appState,
+    appState,
     files: initialScene.files,
   } as React.ComponentProps<typeof Excalidraw>["initialData"];
 
