@@ -147,4 +147,17 @@ describe("parseTextProjectionSection", () => {
       { elementId: "multi1", text: "Line one\nLine two" },
     ]);
   });
+
+  it("round-trips multiple multiline entries through render and parse", () => {
+    const entries = [
+      { elementId: "a1", text: "First line\nSecond line" },
+      { elementId: "b2", text: "Alpha\nBeta\nGamma" },
+      { elementId: "c3", text: "Single line" },
+    ];
+
+    const rendered = renderTextProjectionSection(entries);
+    const parsed = parseTextProjectionSection(rendered);
+
+    expect(parsed).toEqual(entries);
+  });
 });

@@ -67,6 +67,11 @@ export function renderTextProjectionSection(
 /**
  * Parses the # Text Elements section back into entries.
  * Each entry ends with ^elementId on its last line.
+ *
+ * Known limitation: if user text ends with a space followed by ^word,
+ * the parser will treat it as the block anchor. This is an inherited
+ * format constraint from the Excalidraw plugin's markdown envelope.
+ * Practical risk is low since Excalidraw element IDs are random strings.
  */
 export function parseTextProjectionSection(
   sectionContent: string,
