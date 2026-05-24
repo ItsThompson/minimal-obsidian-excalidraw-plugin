@@ -1,4 +1,4 @@
-import { TextFileView, WorkspaceLeaf } from "obsidian";
+import { TextFileView } from "obsidian";
 import { createRoot, Root } from "react-dom/client";
 import { createElement } from "react";
 import { VIEW_TYPE } from "../constants";
@@ -46,7 +46,7 @@ export class ExcalidrawMarkdownView extends TextFileView {
     if (!this.reactRoot) return;
 
     this.reactRoot.render(
-      createElement(ExcalidrawRoot, { initialData: null })
+      createElement(ExcalidrawRoot, { initialScene: null })
     );
   }
 }

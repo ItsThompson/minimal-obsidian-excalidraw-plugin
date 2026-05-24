@@ -18,12 +18,12 @@
   "license": "MIT",
   "dependencies": {
     "@excalidraw/excalidraw": "^0.18.1",
-    "obsidian": "latest",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.41",
+    "obsidian": "latest",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "esbuild": "0.25.5",
