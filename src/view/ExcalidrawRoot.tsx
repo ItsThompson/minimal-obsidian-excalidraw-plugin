@@ -2,6 +2,8 @@ import React, { useCallback } from "react";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import type { ExcalidrawScene, ExcalidrawElement, BinaryFileData } from "../types";
 
+type ExcalidrawOnChange = NonNullable<React.ComponentProps<typeof Excalidraw>["onChange"]>;
+
 export interface ExcalidrawRootProps {
   /** Scene loaded from the markdown drawing block. */
   initialScene: ExcalidrawScene;
@@ -31,9 +33,16 @@ export function ExcalidrawRoot({ initialScene, onSceneChange }: ExcalidrawRootPr
     files: initialScene.files,
   } as React.ComponentProps<typeof Excalidraw>["initialData"];
 
-  const handleChange = useCallback(
-    (elements: readonly any[], appState: any, files: any) => {
-      onSceneChange?.(elements, appState, files);
+  // Upstream onChange emits concrete types (OrderedExcalidrawElement, AppState,
+  // BinaryFiles) that are supersets of our minimal internal types. We accept
+  // the upstream shapes and narrow to our internal types for the autosave layer.
+  const handleChange: ExcalidrawOnChange = useCallback(
+    (elements, appState, files) => {
+      onSceneChange?.(
+        elements as unknown as readonly ExcalidrawElement[],
+        appState as unknown as Record<string, unknown>,
+        files as unknown as Record<string, BinaryFileData>,
+      );
     },
     [onSceneChange],
   );
