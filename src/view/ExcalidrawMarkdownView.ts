@@ -3,7 +3,9 @@ import { createRoot, Root } from "react-dom/client";
 import { createElement } from "react";
 import { VIEW_TYPE } from "../constants";
 import { ExcalidrawMarkdownCodec } from "../markdown/ExcalidrawMarkdownCodec";
+import { DrawingFileService } from "../file/DrawingFileService";
 import { ExcalidrawRoot } from "./ExcalidrawRoot";
+import { createAutosavedScene, type AutosaveState } from "./useAutosavedScene";
 import type { ExcalidrawScene } from "../types";
 
 type ViewStatus =
@@ -15,6 +17,7 @@ export class ExcalidrawMarkdownView extends TextFileView {
   private reactRoot: Root | null = null;
   private status: ViewStatus = { type: "loading" };
   private initialScene: ExcalidrawScene | null = null;
+  private autosave: AutosaveState | null = null;
 
   getViewType(): string {
     return VIEW_TYPE;
@@ -46,11 +49,20 @@ export class ExcalidrawMarkdownView extends TextFileView {
 
     const reactContainer = container.createDiv({ cls: "excalidraw-react-root" });
     this.reactRoot = createRoot(reactContainer);
+
+    this.autosave = createAutosavedScene(async (scene) => {
+      if (!this.file) return;
+      await DrawingFileService.writeDrawing(this.file, scene, this.app.vault);
+    });
   }
 
   async onClose(): Promise<void> {
+    if (this.autosave?.isDirty) {
+      await this.autosave.flush();
+    }
     this.reactRoot?.unmount();
     this.reactRoot = null;
+    this.autosave = null;
   }
 
   private parseAndRender(): void {
@@ -94,7 +106,10 @@ export class ExcalidrawMarkdownView extends TextFileView {
     }
 
     this.reactRoot.render(
-      createElement(ExcalidrawRoot, { initialScene: this.initialScene! }),
+      createElement(ExcalidrawRoot, {
+        initialScene: this.initialScene!,
+        onSceneChange: this.autosave?.handleSceneChange,
+      }),
     );
   }
 }
