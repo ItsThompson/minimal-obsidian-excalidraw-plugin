@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { DrawingFileService } from "../file/DrawingFileService";
+import { DrawingFileService, type VaultOperations } from "../file/DrawingFileService";
 import type { ExcalidrawScene } from "../types";
 
 function buildMinimalScene(overrides?: Partial<ExcalidrawScene>): ExcalidrawScene {
@@ -45,6 +45,21 @@ function createMockVault(content: string = "") {
 
 function createMockFile(path: string) {
   return { path, basename: path.split("/").pop() } as any;
+}
+
+function createMockVaultForCreate(existingPaths: string[] = []): VaultOperations {
+  const existingSet = new Set(existingPaths);
+  return {
+    read: vi.fn().mockResolvedValue(""),
+    modify: vi.fn().mockResolvedValue(undefined),
+    create: vi.fn().mockImplementation((path: string) =>
+      Promise.resolve(createMockFile(path)),
+    ),
+    getAbstractFileByPath: vi.fn().mockImplementation((path: string) =>
+      existingSet.has(path) ? { path } : null,
+    ),
+    createFolder: vi.fn().mockResolvedValue(undefined),
+  };
 }
 
 describe("DrawingFileService.readDrawing", () => {
@@ -237,5 +252,102 @@ describe("DrawingFileService.writeDrawing", () => {
     const writtenContent = vault.modify.mock.calls[0]![1] as string;
     expect(writtenContent).toContain("img1");
     expect(writtenContent).toContain("image/png");
+  });
+});
+
+describe("DrawingFileService.createDrawing", () => {
+  const timestamp = new Date(2026, 4, 24, 14, 30, 0);
+
+  it("creates a file with a timestamp-based filename in the configured folder", async () => {
+    const vault = createMockVaultForCreate();
+    const file = await DrawingFileService.createDrawing(
+      { folder: "excalidraw", timestamp },
+      vault,
+    );
+
+    expect(file.path).toBe("excalidraw/Drawing 2026-05-24 14-30-00.excalidraw.md");
+    expect(vault.create).toHaveBeenCalledWith(
+      "excalidraw/Drawing 2026-05-24 14-30-00.excalidraw.md",
+      expect.any(String),
+    );
+  });
+
+  it("writes a valid empty-scene markdown envelope", async () => {
+    const vault = createMockVaultForCreate();
+    await DrawingFileService.createDrawing({ folder: "excalidraw", timestamp }, vault);
+
+    const writtenContent = (vault.create as ReturnType<typeof vi.fn>).mock.calls[0]![1] as string;
+    expect(writtenContent).toContain("excalidraw-plugin: minimal");
+    expect(writtenContent).toContain("# Text Elements");
+    expect(writtenContent).toContain("# Drawing");
+    expect(writtenContent).toContain('"type": "excalidraw"');
+    expect(writtenContent).toContain('"elements": []');
+  });
+
+  it("creates the folder if it does not exist", async () => {
+    const vault = createMockVaultForCreate();
+    await DrawingFileService.createDrawing({ folder: "excalidraw", timestamp }, vault);
+
+    expect(vault.createFolder).toHaveBeenCalledWith("excalidraw");
+  });
+
+  it("does not create the folder if it already exists", async () => {
+    const vault = createMockVaultForCreate(["excalidraw"]);
+    // Mark the folder as existing
+    (vault.getAbstractFileByPath as ReturnType<typeof vi.fn>).mockImplementation(
+      (path: string) => (path === "excalidraw" ? { path: "excalidraw" } : null),
+    );
+
+    await DrawingFileService.createDrawing({ folder: "excalidraw", timestamp }, vault);
+
+    expect(vault.createFolder).not.toHaveBeenCalled();
+  });
+
+  it("appends a numeric suffix when filename collides", async () => {
+    const vault = createMockVaultForCreate([
+      "excalidraw/Drawing 2026-05-24 14-30-00.excalidraw.md",
+    ]);
+
+    const file = await DrawingFileService.createDrawing(
+      { folder: "excalidraw", timestamp },
+      vault,
+    );
+
+    expect(file.path).toBe("excalidraw/Drawing 2026-05-24 14-30-00 2.excalidraw.md");
+  });
+
+  it("increments suffix past multiple collisions", async () => {
+    const vault = createMockVaultForCreate([
+      "excalidraw/Drawing 2026-05-24 14-30-00.excalidraw.md",
+      "excalidraw/Drawing 2026-05-24 14-30-00 2.excalidraw.md",
+      "excalidraw/Drawing 2026-05-24 14-30-00 3.excalidraw.md",
+    ]);
+
+    const file = await DrawingFileService.createDrawing(
+      { folder: "excalidraw", timestamp },
+      vault,
+    );
+
+    expect(file.path).toBe("excalidraw/Drawing 2026-05-24 14-30-00 4.excalidraw.md");
+  });
+
+  it("normalizes the folder path (strips leading/trailing slashes)", async () => {
+    const vault = createMockVaultForCreate();
+    const file = await DrawingFileService.createDrawing(
+      { folder: "/my/drawings/", timestamp },
+      vault,
+    );
+
+    expect(file.path).toBe("my/drawings/Drawing 2026-05-24 14-30-00.excalidraw.md");
+  });
+
+  it("defaults to 'excalidraw' folder when folder is empty", async () => {
+    const vault = createMockVaultForCreate();
+    const file = await DrawingFileService.createDrawing(
+      { folder: "", timestamp },
+      vault,
+    );
+
+    expect(file.path).toBe("excalidraw/Drawing 2026-05-24 14-30-00.excalidraw.md");
   });
 });
