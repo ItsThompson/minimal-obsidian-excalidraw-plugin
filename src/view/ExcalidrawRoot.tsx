@@ -5,8 +5,6 @@ import type { ExcalidrawScene } from "../types";
 export interface ExcalidrawRootProps {
   /** Scene loaded from the markdown drawing block. */
   initialScene: ExcalidrawScene;
-  /** Receives latest upstream Excalidraw scene data. Optional until autosave is wired. */
-  onSceneChange?: (scene: ExcalidrawScene) => void;
 }
 
 /**
@@ -18,12 +16,14 @@ export interface ExcalidrawRootProps {
  * At runtime, the actual data contains full upstream element shapes read from files.
  */
 export function ExcalidrawRoot({ initialScene }: ExcalidrawRootProps): React.ReactElement {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const initialData: any = {
+  // Our internal ExcalidrawElement/BinaryFileData are minimal subsets of upstream types.
+  // At runtime the actual data contains full upstream shapes read from files.
+  // The cast is narrowed to the prop boundary where our types meet upstream's.
+  const initialData = {
     elements: initialScene.elements,
     appState: initialScene.appState,
     files: initialScene.files,
-  };
+  } as React.ComponentProps<typeof Excalidraw>["initialData"];
 
   return (
     <div className="excalidraw-wrapper">
