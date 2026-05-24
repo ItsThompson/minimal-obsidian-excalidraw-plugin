@@ -336,3 +336,179 @@ describe("Round-trip: parse(serialize(scene))", () => {
     expect(result.document.scene.source).toBe("https://custom.source");
   });
 });
+
+describe("Last-pair marker extraction: round-trip edge cases", () => {
+  it("round-trips a text element containing %%", () => {
+    const scene = buildMinimalScene({
+      elements: [
+        { id: "t1", type: "text", text: "before %% after", isDeleted: false },
+      ],
+    });
+
+    const serialized = ExcalidrawMarkdownCodec.serialize(scene);
+    const result = ExcalidrawMarkdownCodec.parse(serialized);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.scene.elements).toEqual(scene.elements);
+  });
+
+  it("round-trips a text element containing triple backticks", () => {
+    const scene = buildMinimalScene({
+      elements: [
+        { id: "t1", type: "text", text: "code: ``` end", isDeleted: false },
+      ],
+    });
+
+    const serialized = ExcalidrawMarkdownCodec.serialize(scene);
+    const result = ExcalidrawMarkdownCodec.parse(serialized);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.scene.elements).toEqual(scene.elements);
+  });
+
+  it("round-trips a multiline text element with %% on an interior line", () => {
+    const scene = buildMinimalScene({
+      elements: [
+        { id: "t1", type: "text", text: "line one\n%%\nline three", isDeleted: false },
+      ],
+    });
+
+    const serialized = ExcalidrawMarkdownCodec.serialize(scene);
+    const result = ExcalidrawMarkdownCodec.parse(serialized);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.scene.elements).toEqual(scene.elements);
+  });
+
+  it("round-trips a text element containing %%\\n# Drawing", () => {
+    const scene = buildMinimalScene({
+      elements: [
+        { id: "t1", type: "text", text: "%%\n# Drawing", isDeleted: false },
+      ],
+    });
+
+    const serialized = ExcalidrawMarkdownCodec.serialize(scene);
+    const result = ExcalidrawMarkdownCodec.parse(serialized);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.scene.elements).toEqual(scene.elements);
+  });
+
+  it("parses files with empty text projection correctly", () => {
+    const scene = buildMinimalScene({
+      elements: [
+        { id: "rect1", type: "rectangle", x: 0, y: 0, width: 50, height: 50 },
+      ],
+    });
+
+    const serialized = ExcalidrawMarkdownCodec.serialize(scene);
+    const result = ExcalidrawMarkdownCodec.parse(serialized);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.textProjection).toEqual([]);
+    expect(result.document.scene.elements).toEqual(scene.elements);
+  });
+
+  it("parses files with no text elements correctly", () => {
+    const scene = buildMinimalScene({ elements: [] });
+
+    const serialized = ExcalidrawMarkdownCodec.serialize(scene);
+    const result = ExcalidrawMarkdownCodec.parse(serialized);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.textProjection).toEqual([]);
+    expect(result.document.scene.elements).toEqual([]);
+  });
+
+  it("parses pre-fix format files (backward compat)", () => {
+    // Pre-fix format: simple file with no %% in text content
+    const scene = buildMinimalScene({
+      elements: [
+        { id: "t1", type: "text", text: "Hello world", isDeleted: false },
+      ],
+    });
+    const markdown = [
+      "---",
+      "excalidraw-plugin: minimal",
+      "tags: [excalidraw]",
+      "---",
+      "",
+      "# Text Elements",
+      "Hello world ^t1",
+      "",
+      "%%",
+      "# Drawing",
+      "```json",
+      JSON.stringify(scene, null, 2),
+      "```",
+      "%%",
+      "",
+    ].join("\n");
+
+    const result = ExcalidrawMarkdownCodec.parse(markdown);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.scene.elements).toEqual(scene.elements);
+    expect(result.document.textProjection).toEqual([
+      { elementId: "t1", text: "Hello world" },
+    ]);
+  });
+
+  it("handles multiple text elements each with %% on interior lines", () => {
+    const scene = buildMinimalScene({
+      elements: [
+        { id: "t1", type: "text", text: "a\n%%\nb", isDeleted: false },
+        { id: "t2", type: "text", text: "c\n%%\nd", isDeleted: false },
+      ],
+    });
+
+    const serialized = ExcalidrawMarkdownCodec.serialize(scene);
+    const result = ExcalidrawMarkdownCodec.parse(serialized);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.scene.elements).toEqual(scene.elements);
+  });
+
+  it("correctly extracts text projection when text contains %%", () => {
+    const scene = buildMinimalScene({
+      elements: [
+        { id: "t1", type: "text", text: "line one\n%%\nline three", isDeleted: false },
+      ],
+    });
+
+    const serialized = ExcalidrawMarkdownCodec.serialize(scene);
+    const result = ExcalidrawMarkdownCodec.parse(serialized);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.textProjection).toEqual([
+      { elementId: "t1", text: "line one\n%%\nline three" },
+    ]);
+  });
+
+  it("handles text element with ``` on its own line in the JSON value", () => {
+    // The JSON.stringify serialization stores the literal backticks in the JSON string,
+    // but they appear indented (within the pretty-printed JSON object) so line-anchored
+    // fence matching won't false-positive.
+    const scene = buildMinimalScene({
+      elements: [
+        { id: "t1", type: "text", text: "```\ncode block\n```", isDeleted: false },
+      ],
+    });
+
+    const serialized = ExcalidrawMarkdownCodec.serialize(scene);
+    const result = ExcalidrawMarkdownCodec.parse(serialized);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.document.scene.elements).toEqual(scene.elements);
+  });
+});
