@@ -53,10 +53,18 @@ export const DrawingFileService = {
     const folder = normalizeFolderPath(request.folder || "excalidraw");
     const timestamp = request.timestamp ?? new Date();
 
-    // Create folder if missing
-    const folderExists = vault.getAbstractFileByPath(folder);
-    if (!folderExists) {
-      await vault.createFolder(folder);
+    // Create folder if missing (createFolder throws if it already exists)
+    if (!vault.getAbstractFileByPath(folder)) {
+      try {
+        await vault.createFolder(folder);
+      } catch {
+        // Folder may have been created between check and create (race),
+        // or getAbstractFileByPath returned null for an existing folder.
+        // Either way, if the folder exists now we can proceed.
+        if (!vault.getAbstractFileByPath(folder)) {
+          throw new Error(`Failed to create folder: ${folder}`);
+        }
+      }
     }
 
     // Build the set of existing paths for collision detection
