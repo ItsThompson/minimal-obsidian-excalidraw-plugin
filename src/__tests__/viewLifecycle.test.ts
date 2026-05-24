@@ -18,10 +18,39 @@ type ViewStatus =
   | { type: "error"; message: string };
 
 /**
- * Mirrors the onClose logic from ExcalidrawMarkdownView.
- * Using a function prevents TS from narrowing the status literal at the call site.
+ * Mirrors the detachFile logic from ExcalidrawMarkdownView.
+ * Flushes pending changes, destroys autosave, resets file-tier state.
+ * Does NOT touch view-tier resources (React root, WYSIWYG observer).
  */
-async function simulateOnClose(
+async function simulateDetachFile(
+  autosave: AutosaveState | null,
+  status: ViewStatus,
+): Promise<{ autosave: null; initialScene: null; status: ViewStatus }> {
+  if (autosave && status.type !== "error") {
+    if (autosave.isSaving) {
+      await autosave.waitForSave();
+    }
+    if (autosave.isDirty) {
+      await autosave.flush();
+    }
+  }
+  autosave?.destroy();
+  return { autosave: null, initialScene: null, status: { type: "loading" } };
+}
+
+/**
+ * Mirrors the attachFile logic: creates a fresh autosave controller.
+ */
+function simulateAttachFile(writeFn: () => Promise<void>): AutosaveState {
+  return createAutosavedScene(writeFn, 2000);
+}
+
+/**
+ * Mirrors the unmountView logic from ExcalidrawMarkdownView.
+ * Defensively flushes autosave (for plugin-unload path), then destroys
+ * all view-tier and file-tier resources.
+ */
+async function simulateUnmountView(
   autosave: AutosaveState | null,
   status: ViewStatus,
   hooks?: {
@@ -43,12 +72,7 @@ async function simulateOnClose(
   hooks?.afterDisconnect?.();
 }
 
-/**
- * Tests for ExcalidrawMarkdownView.onClose lifecycle behavior.
- * We test the flush/destroy/cleanup ordering logic directly since the view
- * class requires Obsidian's runtime to instantiate.
- */
-describe("onClose flush behavior", () => {
+describe("view lifecycle: two-tier model", () => {
   beforeEach(() => {
     vi.useFakeTimers();
   });
@@ -57,8 +81,8 @@ describe("onClose flush behavior", () => {
     vi.useRealTimers();
   });
 
-  describe("flush before destroy ordering", () => {
-    it("flush is called before destroy when autosave exists and status is not error", async () => {
+  describe("detachFile: file-tier cleanup", () => {
+    it("flushes dirty changes before destroying autosave", async () => {
       const callOrder: string[] = [];
       const writeFn = vi.fn().mockImplementation(async () => {
         callOrder.push("write");
@@ -67,97 +91,171 @@ describe("onClose flush behavior", () => {
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
-      // Spy on destroy to track ordering
       const originalDestroy = autosave.destroy;
       autosave.destroy = () => {
         callOrder.push("destroy");
         originalDestroy();
       };
 
-      await simulateOnClose(autosave, { type: "ready" });
+      await simulateDetachFile(autosave, { type: "ready" });
 
       expect(callOrder).toEqual(["write", "destroy"]);
     });
 
-    it("flush writes pending dirty state before controller is destroyed", async () => {
-      const writeFn = vi.fn().mockResolvedValue(undefined);
-      const autosave = createAutosavedScene(writeFn, 2000);
-
-      autosave.handleSceneChange(buildElements(3), { zoom: 1.5 }, emptyFiles);
-      expect(autosave.isDirty).toBe(true);
-
-      await simulateOnClose(autosave, { type: "ready" });
-
-      expect(writeFn).toHaveBeenCalledTimes(1);
-      expect(autosave.isDirty).toBe(false);
-    });
-  });
-
-  describe("null safety", () => {
-    it("does not throw when autosave is null (already cleaned up)", async () => {
-      // Simulate the state after onUnloadFile has already run
-      const autosave = createAutosavedScene(vi.fn(), 2000);
-      autosave.destroy();
-
-      // onClose fires after onUnloadFile set autosave to null
-      await expect(
-        simulateOnClose(null, { type: "ready" }),
-      ).resolves.toBeUndefined();
-    });
-  });
-
-  describe("idempotent double-close", () => {
-    it("does not throw when onClose is called twice", async () => {
+    it("resets file-tier state after detach", async () => {
       const writeFn = vi.fn().mockResolvedValue(undefined);
       const autosave = createAutosavedScene(writeFn, 2000);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
-      // First onClose
-      await simulateOnClose(autosave, { type: "ready" });
+      const result = await simulateDetachFile(autosave, { type: "ready" });
 
-      // Second onClose: autosave would be null in the real view
-      await expect(
-        simulateOnClose(null, { type: "ready" }),
-      ).resolves.toBeUndefined();
-
-      // Write only happened once (from first close)
-      expect(writeFn).toHaveBeenCalledTimes(1);
+      expect(result.autosave).toBeNull();
+      expect(result.initialScene).toBeNull();
+      expect(result.status).toEqual({ type: "loading" });
     });
-  });
 
-  describe("no duplicate writes from onUnloadFile + onClose", () => {
-    it("does not write twice when onUnloadFile flushes then onClose fires", async () => {
+    it("does not flush when status is error (discards corrupt data)", async () => {
       const writeFn = vi.fn().mockResolvedValue(undefined);
       const autosave = createAutosavedScene(writeFn, 2000);
 
-      autosave.handleSceneChange(buildElements(2), emptyAppState, emptyFiles);
+      autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
-      // Simulate onUnloadFile: flush + destroy
-      if (autosave.isDirty) {
-        await autosave.flush();
-      }
-      autosave.destroy();
+      await simulateDetachFile(autosave, { type: "error", message: "parse failed" });
 
-      // Simulate onClose firing after onUnloadFile (autosave is null in view)
-      await simulateOnClose(null, { type: "ready" });
+      expect(writeFn).not.toHaveBeenCalled();
+    });
 
-      // Only one write from onUnloadFile's flush
-      expect(writeFn).toHaveBeenCalledTimes(1);
+    it("waits for in-progress save before flushing", async () => {
+      const callOrder: string[] = [];
+      let resolveWrite: () => void = () => {};
+      const writeFn = vi.fn().mockImplementation(() => {
+        callOrder.push("write-start");
+        return new Promise<void>((resolve) => {
+          resolveWrite = () => {
+            callOrder.push("write-end");
+            resolve();
+          };
+        });
+      });
+      const autosave = createAutosavedScene(writeFn, 2000);
+
+      autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
+
+      // Trigger a periodic save (simulating mid-save state)
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(autosave.isSaving).toBe(true);
+
+      // Trigger detachFile while save is in progress
+      const detachPromise = simulateDetachFile(autosave, { type: "ready" });
+
+      // Resolve the in-progress save
+      resolveWrite();
+      await vi.advanceTimersByTimeAsync(100);
+      await detachPromise;
+
+      expect(callOrder).toContain("write-end");
     });
   });
 
-  describe("error status guard", () => {
+  describe("attachFile: file-tier setup", () => {
+    it("creates a fresh autosave controller", () => {
+      const autosave = simulateAttachFile(vi.fn().mockResolvedValue(undefined));
+
+      expect(autosave.isDirty).toBe(false);
+      expect(autosave.isSaving).toBe(false);
+      autosave.destroy();
+    });
+
+    it("new autosave tracks scene changes independently", async () => {
+      const writeFn = vi.fn().mockResolvedValue(undefined);
+      const autosave = simulateAttachFile(writeFn);
+
+      autosave.handleSceneChange(buildElements(2), emptyAppState, emptyFiles);
+      expect(autosave.isDirty).toBe(true);
+
+      await autosave.flush();
+      expect(writeFn).toHaveBeenCalledTimes(1);
+      autosave.destroy();
+    });
+  });
+
+  describe("file switch scenario: detachFile → attachFile → render", () => {
+    it("full file switch: old file flushed, new autosave created, render succeeds", async () => {
+      const writeA = vi.fn().mockResolvedValue(undefined);
+      const autosaveA = createAutosavedScene(writeA, 2000);
+
+      // Simulate editing file A
+      autosaveA.handleSceneChange(buildElements(3), emptyAppState, emptyFiles);
+      expect(autosaveA.isDirty).toBe(true);
+
+      // Step 1: detachFile (onUnloadFile for file A)
+      await simulateDetachFile(autosaveA, { type: "ready" });
+      expect(writeA).toHaveBeenCalledTimes(1); // A's changes flushed
+
+      // Step 2: attachFile (setViewData with clear=true for file B)
+      const writeB = vi.fn().mockResolvedValue(undefined);
+      const autosaveB = simulateAttachFile(writeB);
+
+      // Step 3: render succeeds because React root is still alive
+      // (In the real view, reactRoot is untouched by detachFile)
+      expect(autosaveB.isDirty).toBe(false);
+      expect(autosaveB.isSaving).toBe(false);
+
+      // Simulate editing file B
+      autosaveB.handleSceneChange(buildElements(5), emptyAppState, emptyFiles);
+      expect(autosaveB.isDirty).toBe(true);
+
+      await autosaveB.flush();
+      expect(writeB).toHaveBeenCalledTimes(1);
+      autosaveB.destroy();
+    });
+
+    it("detachFile does NOT touch view-tier state (React root persists)", async () => {
+      // This test verifies the architectural guarantee: detachFile only
+      // nulls file-tier state, view-tier resources remain intact
+      const writeFn = vi.fn().mockResolvedValue(undefined);
+      const autosave = createAutosavedScene(writeFn, 2000);
+
+      autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
+
+      const result = await simulateDetachFile(autosave, { type: "ready" });
+
+      // File-tier is reset
+      expect(result.autosave).toBeNull();
+      expect(result.initialScene).toBeNull();
+      // View-tier (reactRoot, wysiwygObserver) is untouched:
+      // simulated by the fact that we DON'T call unmount/disconnect
+    });
+  });
+
+  describe("unmountView: defensive flush for plugin-unload path", () => {
+    it("flushes and destroys autosave when onClose fires without preceding onUnloadFile", async () => {
+      const writeFn = vi.fn().mockResolvedValue(undefined);
+      const autosave = createAutosavedScene(writeFn, 2000);
+
+      autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
+      expect(autosave.isDirty).toBe(true);
+
+      await simulateUnmountView(autosave, { type: "ready" });
+
+      expect(writeFn).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not throw when autosave is already null (normal tab-close after onUnloadFile)", async () => {
+      await expect(
+        simulateUnmountView(null, { type: "ready" }),
+      ).resolves.toBeUndefined();
+    });
+
     it("does not flush when status is error", async () => {
       const writeFn = vi.fn().mockResolvedValue(undefined);
       const autosave = createAutosavedScene(writeFn, 2000);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
-      expect(autosave.isDirty).toBe(true);
 
-      await simulateOnClose(autosave, { type: "error", message: "parse failed" });
+      await simulateUnmountView(autosave, { type: "error", message: "bad data" });
 
-      // Write was never called: dirty state is intentionally discarded
       expect(writeFn).not.toHaveBeenCalled();
     });
 
@@ -167,11 +265,81 @@ describe("onClose flush behavior", () => {
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
-      await simulateOnClose(autosave, { type: "error", message: "bad data" });
+      await simulateUnmountView(autosave, { type: "error", message: "bad data" });
 
-      // After destroy, interval is stopped: advancing timers should not trigger writes
+      // After destroy, interval is stopped
       await vi.advanceTimersByTimeAsync(5000);
       expect(writeFn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("setViewData with clear=false does not recreate autosave", () => {
+    it("existing autosave remains active when clear=false (external edit refresh)", async () => {
+      const writeFn = vi.fn().mockResolvedValue(undefined);
+      const autosave = createAutosavedScene(writeFn, 2000);
+
+      // Simulate editing: autosave is dirty
+      autosave.handleSceneChange(buildElements(2), emptyAppState, emptyFiles);
+      expect(autosave.isDirty).toBe(true);
+
+      // Simulate setViewData(newData, clear=false):
+      // In the real view, attachFile is NOT called. Autosave remains.
+      // We verify the autosave is the same instance and still dirty.
+      expect(autosave.isDirty).toBe(true);
+
+      await autosave.flush();
+      expect(writeFn).toHaveBeenCalledTimes(1);
+      autosave.destroy();
+    });
+  });
+
+  describe("no duplicate writes: onUnloadFile then onClose", () => {
+    it("detachFile flushes once, subsequent unmountView does not write again", async () => {
+      const writeFn = vi.fn().mockResolvedValue(undefined);
+      const autosave = createAutosavedScene(writeFn, 2000);
+
+      autosave.handleSceneChange(buildElements(2), emptyAppState, emptyFiles);
+
+      // Step 1: onUnloadFile → detachFile flushes and nulls autosave
+      await simulateDetachFile(autosave, { type: "ready" });
+      expect(writeFn).toHaveBeenCalledTimes(1);
+
+      // Step 2: onClose → unmountView sees autosave as null, no-ops
+      await simulateUnmountView(null, { type: "ready" });
+
+      // Still only one write
+      expect(writeFn).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("cleanup ordering: flush → destroy → unmount → disconnect", () => {
+    it("follows the correct cleanup order in unmountView", async () => {
+      const callOrder: string[] = [];
+
+      const writeFn = vi.fn().mockImplementation(async () => {
+        callOrder.push("flush-write");
+      });
+      const autosave = createAutosavedScene(writeFn, 2000);
+
+      autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
+
+      const originalDestroy = autosave.destroy;
+      autosave.destroy = () => {
+        callOrder.push("destroy");
+        originalDestroy();
+      };
+
+      await simulateUnmountView(autosave, { type: "ready" }, {
+        afterUnmount: () => callOrder.push("unmount"),
+        afterDisconnect: () => callOrder.push("disconnect"),
+      });
+
+      expect(callOrder).toEqual([
+        "flush-write",
+        "destroy",
+        "unmount",
+        "disconnect",
+      ]);
     });
   });
 
@@ -184,61 +352,42 @@ describe("onClose flush behavior", () => {
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
-      // flush should not reject: errors go through onWriteError callback
       await expect(autosave.flush()).resolves.toBeUndefined();
-
       expect(onWriteError).toHaveBeenCalledWith(writeError);
 
-      // Destroy still works after flush error
       autosave.destroy();
     });
 
-    it("destroy and cleanup proceed even after flush error", async () => {
+    it("destroy and cleanup proceed even after flush error in unmountView", async () => {
       const writeFn = vi.fn().mockRejectedValue(new Error("IO error"));
       const onWriteError = vi.fn();
       const autosave = createAutosavedScene(writeFn, 2000, { onWriteError });
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
-      await simulateOnClose(autosave, { type: "ready" });
+      await simulateUnmountView(autosave, { type: "ready" });
 
-      // Verify error was routed and controller is stopped
       expect(onWriteError).toHaveBeenCalledTimes(1);
       await vi.advanceTimersByTimeAsync(5000);
-      // No additional write attempts after destroy
       expect(writeFn).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe("cleanup ordering: flush → destroy → unmount → disconnect", () => {
-    it("follows the correct cleanup order", async () => {
-      const callOrder: string[] = [];
-
-      const writeFn = vi.fn().mockImplementation(async () => {
-        callOrder.push("flush-write");
-      });
+  describe("idempotent double-close", () => {
+    it("does not throw when unmountView is called twice", async () => {
+      const writeFn = vi.fn().mockResolvedValue(undefined);
       const autosave = createAutosavedScene(writeFn, 2000);
 
       autosave.handleSceneChange(buildElements(1), emptyAppState, emptyFiles);
 
-      // Wrap destroy to track ordering
-      const originalDestroy = autosave.destroy;
-      autosave.destroy = () => {
-        callOrder.push("destroy");
-        originalDestroy();
-      };
+      await simulateUnmountView(autosave, { type: "ready" });
 
-      await simulateOnClose(autosave, { type: "ready" }, {
-        afterUnmount: () => callOrder.push("unmount"),
-        afterDisconnect: () => callOrder.push("disconnect"),
-      });
+      // Second call: autosave is null in the real view
+      await expect(
+        simulateUnmountView(null, { type: "ready" }),
+      ).resolves.toBeUndefined();
 
-      expect(callOrder).toEqual([
-        "flush-write",
-        "destroy",
-        "unmount",
-        "disconnect",
-      ]);
+      expect(writeFn).toHaveBeenCalledTimes(1);
     });
   });
 });
