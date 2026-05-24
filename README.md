@@ -12,7 +12,7 @@ This plugin takes a different approach: **do less, stay thin**. It wraps the pub
 
 - **Create drawings**: Run "Create new Excalidraw drawing" from the command palette.
 - **Edit in-vault**: Drawings open in a native Excalidraw editor tab inside Obsidian.
-- **Autosave**: Changes are debounced and written automatically. Pending changes flush on tab close.
+- **Autosave**: Changes are saved on a 2-second interval timer. Pending changes flush on tab close.
 - **Searchable text**: Text elements from your drawings are projected into a `# Text Elements` markdown section, making them discoverable through Obsidian search.
 - **Vault-native files**: Drawings are `.excalidraw.md` files: linkable with wikilinks, readable as markdown if the plugin is disabled.
 
@@ -20,58 +20,59 @@ This plugin takes a different approach: **do less, stay thin**. It wraps the pub
 
 No AI, no OCR, no LaTeX, no scripting engine, no custom export pipeline, no sidepanels, no collaboration features, no image extraction to attachments. The editor behaves exactly like upstream Excalidraw.
 
-## Setup
+## Installation
 
-### Prerequisites
-
-- [Node.js](https://nodejs.org/) 18+
-- An Obsidian vault for development testing
-
-### Install dependencies
+### From source
 
 ```sh
 npm install
-```
-
-### Development build
-
-```sh
-npm run dev
-```
-
-This produces `main.js` and `styles.css` in the project root. Symlink or copy the project directory into your vault's `.obsidian/plugins/minimal-excalidraw/` folder, then enable the plugin in Obsidian settings.
-
-### Production build
-
-```sh
 npm run build
 ```
 
-Runs TypeScript type checking followed by an optimized esbuild bundle.
+This produces three files in the project root:
+
+- `main.js` — bundled plugin code
+- `styles.css` — combined Excalidraw + plugin styles
+- `manifest.json` — already exists in the repo
+
+Copy all three into your vault's plugin folder:
+
+```sh
+mkdir -p /path/to/vault/.obsidian/plugins/minimal-excalidraw
+cp main.js styles.css manifest.json /path/to/vault/.obsidian/plugins/minimal-excalidraw/
+```
+
+Then in Obsidian:
+
+1. Settings → Community Plugins → turn off "Restricted Mode"
+2. Find "Minimal Excalidraw" in the installed plugins list and enable it
+3. Run "Create new Excalidraw drawing" from the command palette (`Cmd+P`)
+
+### Development workflow
+
+For iterating on the plugin, use `npm run dev` which watches for changes and rebuilds on save. Symlink the project root directly into your vault's plugin folder so you don't need to copy files after each rebuild:
+
+```sh
+ln -s /path/to/this/repo /path/to/vault/.obsidian/plugins/minimal-excalidraw
+```
+
+Install the [hot-reload](https://github.com/pjeby/hot-reload) plugin in your dev vault for automatic reload on rebuild. Add a `.hotreload` marker file to the project root:
+
+```sh
+touch .hotreload
+```
 
 ### Run tests
 
 ```sh
-npm test
-```
-
-Runs the full Vitest suite (112 tests covering the codec, text projection, file service, autosave, filename generation, and error handling).
-
-```sh
-npm run test:watch
-```
-
-Runs tests in watch mode during development.
-
-### Type checking
-
-```sh
-npm run typecheck
+npm test            # single run
+npm run test:watch  # watch mode
+npm run typecheck   # type checking only
 ```
 
 ## How it works
 
-The plugin registers a custom view for `.excalidraw.md` files. When you open one, the view parses the embedded JSON scene data, mounts a React-rendered Excalidraw editor, and feeds it the saved scene. As you draw, an autosave controller debounces changes and writes the latest scene back to the file through Obsidian's vault API.
+The plugin registers a custom view for `.excalidraw.md` files. When you open one, the view parses the embedded JSON scene data, mounts a React-rendered Excalidraw editor, and feeds it the saved scene. As you draw, a 2-second interval timer checks for dirty state and writes the latest scene back to the file through Obsidian's vault API. Saves are skipped while you're actively editing text or creating new elements.
 
 The `.excalidraw.md` format is a markdown envelope:
 
