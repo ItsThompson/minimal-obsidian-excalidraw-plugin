@@ -73,15 +73,21 @@ export function createAutosavedScene(
   let intervalId: ReturnType<typeof setInterval> | null = null;
 
   /**
-   * Returns true if the scene is in an active editing state that
-   * should not be interrupted by a save.
+   * Returns true if the scene is in a state where autosave should
+   * be deferred. Includes active editing AND open dialogs.
+   *
+   * Skipping during open dialogs prevents concurrent memory pressure:
+   * Excalidraw's export dialog allocates a preview canvas while
+   * JSON.stringify of the full scene (including base64 file data)
+   * would create multi-hundred-MB string copies simultaneously.
    */
-  function isActivelyEditing(): boolean {
+  function shouldDeferSave(): boolean {
     if (!pendingScene) return false;
     const appState = pendingScene.appState;
     return (
       appState.editingTextElement != null ||
-      appState.newElement != null
+      appState.newElement != null ||
+      appState.openDialog != null
     );
   }
 
@@ -160,9 +166,9 @@ export function createAutosavedScene(
     }
   }
 
-  // Start periodic check: skip save if actively editing text/new element
+  // Start periodic check: skip save if actively editing or dialog is open
   intervalId = setInterval(() => {
-    if (isDirty && !isSaving && !isActivelyEditing()) {
+    if (isDirty && !isSaving && !shouldDeferSave()) {
       void performWrite();
     }
   }, intervalMs);

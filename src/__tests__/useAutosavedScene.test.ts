@@ -200,4 +200,75 @@ describe("createAutosavedScene", () => {
     expect(writeFn).toHaveBeenCalledTimes(2);
     expect(autosave.isDirty).toBe(false);
   });
+
+  it("defers save while text is being edited", async () => {
+    const writeFn = vi.fn().mockResolvedValue(undefined);
+    const autosave = createAutosavedScene(writeFn, 1000);
+
+    autosave.handleSceneChange(
+      buildElements(1),
+      { editingTextElement: { id: "text1" } },
+      emptyFiles,
+    );
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(writeFn).not.toHaveBeenCalled();
+    expect(autosave.isDirty).toBe(true);
+  });
+
+  it("defers save while a new element is being drawn", async () => {
+    const writeFn = vi.fn().mockResolvedValue(undefined);
+    const autosave = createAutosavedScene(writeFn, 1000);
+
+    autosave.handleSceneChange(
+      buildElements(1),
+      { newElement: { id: "new1", type: "rectangle" } },
+      emptyFiles,
+    );
+    await vi.advanceTimersByTimeAsync(3000);
+
+    expect(writeFn).not.toHaveBeenCalled();
+    expect(autosave.isDirty).toBe(true);
+  });
+
+  it("defers save while a dialog is open (prevents OOM during export)", async () => {
+    const writeFn = vi.fn().mockResolvedValue(undefined);
+    const autosave = createAutosavedScene(writeFn, 1000);
+
+    // Simulate export dialog open: Excalidraw sets openDialog in appState
+    autosave.handleSceneChange(
+      buildElements(3),
+      { openDialog: "imageExport" },
+      emptyFiles,
+    );
+    await vi.advanceTimersByTimeAsync(5000);
+
+    // Should NOT have written: dialog was open the entire time
+    expect(writeFn).not.toHaveBeenCalled();
+    expect(autosave.isDirty).toBe(true);
+  });
+
+  it("resumes saving after dialog is closed", async () => {
+    const writeFn = vi.fn().mockResolvedValue(undefined);
+    const autosave = createAutosavedScene(writeFn, 1000);
+
+    // Dialog open: save deferred
+    autosave.handleSceneChange(
+      buildElements(3),
+      { openDialog: "imageExport" },
+      emptyFiles,
+    );
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(writeFn).not.toHaveBeenCalled();
+
+    // Dialog closed: save should proceed on next interval
+    autosave.handleSceneChange(
+      buildElements(3),
+      { openDialog: null },
+      emptyFiles,
+    );
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(writeFn).toHaveBeenCalledTimes(1);
+  });
 });

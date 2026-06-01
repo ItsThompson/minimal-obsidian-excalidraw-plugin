@@ -45,7 +45,20 @@ export class ExcalidrawMarkdownView extends TextFileView {
   setViewData(data: string, clear: boolean): void {
     if (clear) {
       this.attachFile();
+      this.data = data;
+      this.parseAndRender();
+      return;
     }
+
+    // Guard against vault.modify → setViewData feedback loop.
+    // When autosave writes the file, Obsidian fires a modify event that
+    // calls setViewData back with the same content. Without this guard,
+    // the re-parse + re-render allocates native image-decode buffers
+    // that accumulate and can exhaust system memory during export.
+    if (data === this.data) {
+      return;
+    }
+
     this.data = data;
     this.parseAndRender();
   }

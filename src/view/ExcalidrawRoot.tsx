@@ -16,6 +16,17 @@ export interface ExcalidrawRootProps {
 }
 
 /**
+ * Disables the built-in "Save as image" export dialog.
+ * That dialog allocates canvases at full exportScale × DPR in a rendering
+ * loop that leaks native memory in Electron, causing system crashes.
+ */
+const UI_OPTIONS = {
+  canvasActions: {
+    saveAsImage: false,
+  },
+};
+
+/**
  * Thin adapter: renders the upstream Excalidraw component with initialData
  * constructed from the parsed scene.
  *
@@ -57,7 +68,11 @@ export function ExcalidrawRoot({ initialScene, onSceneChange }: ExcalidrawRootPr
 
   return (
     <div className="excalidraw-wrapper">
-      <Excalidraw initialData={initialData} onChange={handleChange} />
+      <Excalidraw
+        initialData={initialData}
+        onChange={handleChange}
+        UIOptions={UI_OPTIONS}
+      />
     </div>
   );
 }
